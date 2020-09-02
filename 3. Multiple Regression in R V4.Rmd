@@ -1,0 +1,435 @@
+---
+title: "Blackwell Case: Sales prediction with Multiple Regression"
+author: Thomas Schneider - Data Analyst
+output: 
+  ioslides_presentation:
+    background: white
+    smaller: yes
+    widescreen: yes
+    css: https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css
+---
+html_document:
+    theme: cerulean
+    highlight: tango
+    toc: true
+    toc_float: true
+    df_print: kable
+    code_folding: hide
+ 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = F, message = F)
+```
+
+```{r}
+#install packages & open the libraries 
+#install.packages("corrplot")
+#install.packages("seriation")
+#install.packages("carret")
+#install.packages("tidymv)
+#install.packages("e1071")
+#install.packages("class")
+#install.packages("validate")
+library(validate)
+library(dplyr)
+library(ggplot2)
+library(caret)
+library(corrplot)
+library(mgcv)
+library(tidymv)
+library(e1071)
+library(class)
+library(mlbench)
+#library(seriation)
+```
+
+```{r}
+#load the data sets
+ExistingProducts <- read.csv("C:/Users/Thomas S/Documents/Ubiqum/2. Data Analytics 2/2. Data Analytics 2/3. Multiple Regression in R/Data/existingproductattributes2017.csv")
+NewProducts <- read.csv("C:/Users/Thomas S/Documents/Ubiqum/2. Data Analytics 2/2. Data Analytics 2/3. Multiple Regression in R/Data//newproductattributes2017.csv")
+```
+
+## Task overview
+
+**Client Case: Blackwell Inc.** 
+
+Blackwell Inc. is a Retailer for Consumer Electronics in the United States. They currently want to expand their product lineup in four different product types. Futhermore, the client has some historic data on existing products.
+
+Task:
+
+- Predict the sales of four different product types: PCs, Laptops, Netbooks and Smartphones
+- Analysis what impact service reviews have on the sales of the different product types
+
+Available Resources:
+
+- Limited data on already existing products
+
+## Table of Contents
+
+1. Data Overview
+
+2. Data Cleaning
+
+3. Data Exploration
+
+4. Pre-Processing: Feature selection & engineering
+
+5. Model Selection: Linear Regression, KNN, SVM & Random Forest
+
+6. Error Analysis
+
+7. Summary
+
+
+## Data Overview
+
+### Existing Product Data
+```{r take a look at the data sets Existing Porduct Data, include=FALSE}
+glimpse(ExistingProducts)
+```
+
+### New Product Data
+```{r take a look at the data sets New Product Data, include=FALSE}
+glimpse(NewProducts)
+```
+
+## Dummifying the Data
+```{r}
+# dummify the data
+newDataFrame <- dummyVars("~ .", data = ExistingProducts)
+readyData <- data.frame(predict(newDataFrame, newdata = ExistingProducts))
+#readyData
+```
+
+## Missing Data Exclusion (Ex. Prod)
+### Summary of Data
+```{r}
+#missing data exclsuion
+#summary of data
+summary(readyData)
+```
+
+### Summary of Missing Data
+```{r}
+#summary of missing data
+sum(is.na(readyData))
+```
+
+### Proportion of Missing Data
+```{r}
+#mean proportion of missing to existing data
+mean(is.na(readyData))
+```
+
+### Proportion of Missing Data after exclusion (Test)
+```{r}
+#omit attribute(s) with missing data
+readyData$BestSellersRank <-NULL
+#??? Did I choose the right df 
+#mean proportion of missing to existing data after exclusion as check to make sure all missing attributes excldued
+mean(is.na(readyData))
+```
+
+## Standardization of the Data
+```{r}
+#normalize
+preproc1 <- preProcess(readyData[,c(1:28)], method=c("center","scale"))
+readyData <- predict(preproc1, readyData[,c(1:28)])
+summary(readyData)
+```
+
+## Checking for Outliers
+```{r}
+par(mfrow=c(1,2))
+
+boxplot(readyData$Price, main="Price", sub=paste("Outlier rows: ", boxplot.stats(readyData$Price)$out))
+
+boxplot(readyData$x5StarReviews, main="5 Star Reviews", sub=paste("Outlier rows: ", boxplot.stats(readyData$x5StarReviews)$out))
+
+boxplot(readyData$x1StarReviews, main="1 Star Reviews", sub=paste("Outlier rows: ", boxplot.stats(readyData$x1StarReviews)$out))
+
+boxplot(readyData$PositiveServiceReview, main="Positive Reviews", sub=paste("Outlier rows: ", boxplot.stats(readyData$x1StarReviews)$out))
+
+boxplot(readyData$NegativeServiceReview, main="Negative Reviews", sub=paste("Outlier rows: ", boxplot.stats(readyData$xNegativeServiceReview)$out))
+
+boxplot(readyData$Volume, main="Volume", sub=paste("Outlier rows: ", boxplot.stats(readyData$Volume)$out))
+```
+
+## Correlation Matrix of Attributes
+```{r}
+#check correlation of the Data
+#corrData <-cor(readyData)
+#
+#colnames(readyData)
+```
+
+```{r}
+#use abbreviation for attributes (otherwise to long to display)
+
+readyDataAbre <-readyData %>% rename(PT.A = ProductType.Accessories, PT.D = ProductType.Display, PT.EW = ProductType.ExtendedWarranty, PT.GC = ProductType.GameConsole, PT.L = ProductType.Laptop, PT.N = ProductType.Netbook, PT.PC = ProductType.PC, PT.P = ProductType.Printer, PT.PS = ProductType.PrinterSupplies, PT.SP = ProductType.Smartphone, PT.S =ProductType.Software, PT.T = ProductType.Tablet, P.no = ProductNum, USD = Price, x5no = x5StarReviews, x4no = x4StarReviews, x3no = x3StarReviews, x2no= x2StarReviews, x1no= x1StarReviews, PSR= PositiveServiceReview, NSR= NegativeServiceReview, RP= Recommendproduct, SW= ShippingWeight, PD= ProductDepth, PW= ProductWidth, PH= ProductHeight, ProfM= ProfitMargin, Vol= Volume)
+
+corrDataAbre <- cor(readyDataAbre)
+
+#Plot correlation matrix
+#corrplot(corrDataAbre, cl.pos = "b", tl.pos = "d", tl.srt = 60)
+corrplot(corrDataAbre, type = "upper")
+corrplot.mixed(corrDataAbre, lower.col = "black", number.cex = .5)
+
+```
+
+## Linear Model
+### Training Size & Test Size
+```{r}
+#create testing and training set
+set.seed(123)
+#calculates the size of the training and testing set (but does not save it)
+trainSize<-round(nrow(readyDataAbre)*0.7)
+testSize <-nrow(readyDataAbre)-trainSize
+#prints the no rows of each set
+trainSize
+testSize
+
+#create the actual training and testing sets
+training_indices <-sample(seq_len(nrow(readyDataAbre)), size=trainSize)
+trainSet <- readyDataAbre[training_indices,]
+testSet <- readyDataAbre[-training_indices,]
+```
+
+### Linear Model 1 Traing (using 6 most Important Independant Variables)
+```{r}
+#Linear Model
+trainSet
+LinearModel <- lm(Vol ~ x4no + x2no + PSR + PT.GC +NSR, data=trainSet)
+print(LinearModel)
+
+summary(LinearModel)
+kappa.lm(LinearModel)
+```
+
+### Linear Model 2 Training (Using all variables except those which are colinear)
+```{r}
+#Linear Model 2 more independent variables w. possibility of overfitting
+
+LinearModel2 <- lm(Vol ~ PT.A + PT.D + PT.EW + PT.GC + PT.L + PT.N + PT.PC + PT.P + PT.PS + PT.SP + PT.S + PT.T + P.no + USD + x4no + x2no + PSR + NSR + RP + SW + PD + PW + PH + ProfM, data=trainSet)
+
+print(LinearModel2)
+
+summary(LinearModel)
+```
+
+### Linear Model 3 (Using 4-StarReview, Positive Reviews & Negative Reviews)
+```{r}
+#Linear Model
+trainSet
+LinearModel3 <- lm(Vol ~  x4no+  PSR + NSR , data=trainSet)
+print(LinearModel3)
+
+summary(LinearModel3)
+#kappa.lm(LinearModel)
+```
+
+### Linear Model 3 visualization
+```{r}
+scatter.smooth(x=trainSet$x4no + trainSet$PSR + trainSet$NSR, y=trainSet$Vol,
+               main= "Volume ~  4StarRevies +  Positive Reviews + Negative Reviews",
+               xlab = "4-Star-, Positive-Service-, Negative-Service-Review", ylab = "Volume",)
+```
+
+### Linear Prediction of Volume (Model 3) vs Real Values (TrainingSet)
+```{r}
+#
+plot(predict(LinearModel3), trainSet$Vol,
+     xlab = "Predicted Model 3", ylab = "actual")
+
+abline (a=0, b=1)
+
+```
+
+### Linear Model Prediction (TestSet)
+```{r}
+VolPredLmodel3 <- predict(LinearModel3, testSet)
+VolPredLmodel3
+summary(VolPredLmodel3)
+postResample(VolPredLmodel3, testSet$Vol)
+
+```
+
+## SVM Prediction
+### SVM Model Training
+```{r}
+#SVM prediction training
+trctrl <- trainControl(method = "repeatedcv", number = 10, repeats = 3)
+
+set.seed(123)
+
+svm_linear <-train(Vol ~. , data= trainSet, method ="svmLinear",
+                   trControl = trctrl,
+                   preProcess = c("center", "scale"),
+                   tuneLength = 10)
+svm_linear
+summary(svm_linear)
+
+
+
+#svm_pred
+
+```
+
+### SVM Prediction of Volume vs Real Values (TrainingSet)
+```{r}
+#
+plot(predict(svm_linear), trainSet$Vol,
+     xlab = "SVM Model", ylab = "actual")
+
+abline (a=0, b=1)
+
+```
+
+### SVM Model Prediction (TestSet)
+```{r}
+SVMPredLmodel <- predict(svm_linear, testSet)
+SVMPredLmodel
+summary(SVMPredLmodel)
+postResample(SVMPredLmodel, testSet$Vol)
+
+```
+
+## Knn Prediction
+### Knn Model Training
+```{r}
+#Knn prediction
+trctrl <- trainControl(method = "repeatedcv", number = 10, repeats = 3)
+
+set.seed(123)
+
+knn_model <-train(Vol ~. , data= trainSet, method ="knn",
+                   trControl = trctrl,
+                   preProcess = c("center", "scale"),
+                   tuneLength = 10)
+knn_model
+summary(knn_model)
+```
+
+### KNN Prediction of Volume vs Real Values (TrainingSet)
+```{r}
+predict(knn_model)
+plot(predict(knn_model), trainSet$Vol,
+     xlab = "Knn Model", ylab = "actual")
+
+abline (a=0, b=1)
+
+```
+
+### KNN Model Prediction (TestSet)
+```{r}
+VolPredKnnmodel <- predict(knn_model, testSet)
+VolPredKnnmodel
+summary(VolPredKnnmodel)
+postResample(VolPredKnnmodel, testSet$Vol)
+```
+
+## Random Forest Prediction
+### Random Forest Model Training
+```{r}
+#RF prediction
+trctrl <- trainControl(method = "repeatedcv", number = 10, repeats = 3)
+
+set.seed(123)
+
+rf_model <-train(Vol ~. , data= trainSet, method ="rf",
+                   trControl = trctrl,
+                   preProcess = c("center", "scale"),
+                   tuneLength = 10)
+rf_model
+summary(rf_model)
+```
+
+### Random Forest Prediction of Volume vs Real Values (TrainingSet)
+```{r}
+predict(rf_model)
+plot(predict(rf_model), trainSet$Vol,
+     xlab = "Random Forest Model", ylab = "actual")
+
+abline (a=0, b=1)
+
+```
+
+### Random Forest Model Prediction (TestSet)
+```{r}
+VolPredRfmodel <- predict(rf_model, testSet)
+VolPredRfmodel
+summary(VolPredRfmodel)
+postResample(VolPredRfmodel, testSet$Vol)
+
+```
+
+## Applycation of Model to New Product Data
+
+### Dummifying the Data
+```{r}
+# dummify the data
+NPnewDataFrame <- dummyVars("~ .", data = NewProducts)
+NPreadyData <- data.frame(predict(NPnewDataFrame, newdata = NewProducts))
+#readyData
+
+#mean proportion of missing to existing data
+mean(is.na(NPreadyData))
+
+#omit attribute(s) with missing data
+NPreadyData$BestSellersRank <-NULL
+
+#mean proportion of missing to existing data after exclusion as check to make sure all missing attributes excldued
+mean(is.na(NPreadyData))
+
+#use abbreviation for attributes (otherwise to long to display)
+
+NPreadyDataAbre <- NPreadyData %>% rename(PT.A = ProductType.Accessories, PT.D = ProductType.Display, PT.EW = ProductType.ExtendedWarranty, PT.GC = ProductType.GameConsole, PT.L = ProductType.Laptop, PT.N = ProductType.Netbook, PT.PC = ProductType.PC, PT.P = ProductType.Printer, PT.PS = ProductType.PrinterSupplies, PT.SP = ProductType.Smartphone, PT.S =ProductType.Software, PT.T = ProductType.Tablet, P.no = ProductNum, USD = Price, x5no = x5StarReviews, x4no = x4StarReviews, x3no = x3StarReviews, x2no= x2StarReviews, x1no= x1StarReviews, PSR= PositiveServiceReview, NSR= NegativeServiceReview, RP= Recommendproduct, SW= ShippingWeight, PD= ProductDepth, PW= ProductWidth, PH= ProductHeight, ProfM= ProfitMargin, Vol= Volume)
+
+
+#normalize
+preproc1 <- preProcess(NPreadyDataAbre[,c(1:28)], method=c("center","scale"))
+NPreadyDataAbre <- predict(preproc1, NPreadyDataAbre [,c(1:28)])
+summary(NPreadyDataAbre)
+
+ModelNPLinear <- predict(LinearModel3, NPreadyDataAbre)
+ModelNPLinear
+summary(ModelNPLinear)
+
+ModelNPRF <- predict(LinearModel3, NPreadyDataAbre)
+ModelNPRF
+summary(ModelNPRF)
+
+#FinalPredictions <-predict(LinearModel3, validation[,1:60])
+
+```
+
+## Remove/ Going to Delete
+
+### TEST LM
+```{r}
+#LM Test  prediction
+trctrl <- trainControl(method = "repeatedcv", number = 10, repeats = 3)
+
+set.seed(123)
+
+lm3_modelT <-train(Vol ~. , data= trainSet, method ="lm",
+                   trControl = trctrl,
+                   preProcess = c("center", "scale"),
+                   tuneLength = 10)
+lm3_modelT
+summary(lm3_modelT)
+
+predictTest <- predict(lm3_modelT, testSet)
+
+predictTest
+summary(predictTest)
+```
+
+### TEST Linear Model Prediction (TestSet)
+```{r}
+VolPredLmodel3T <- predict(lm3_modelT, testSet)
+VolPredLmodel3T
+summary(VolPredLmodel3T)
+postResample(VolPredLmodel3T, testSet$Vol)
+```
+
